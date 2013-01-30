@@ -387,7 +387,7 @@ returns status of the scan identified by $uuid
 sub scan_status {
 	my ( $self, $uuid ) = @_;
 
-	my $status = $self->full_status($uuid);
+	my $status = $self->scan_full_status($uuid);
 
 	return $status ? $status->{status} : '';
 }
