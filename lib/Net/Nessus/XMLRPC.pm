@@ -392,7 +392,7 @@ sub scan_status {
 
 	my $status = $self->scan_full_status($uuid);
 
-	return $status ? $status->{status} : '';
+	return $status ? $status->{status} : undef;
 }
 
 =head2 scan_full_status ( $uuid )
@@ -425,6 +425,7 @@ sub scan_full_status {
 
 	my $xmls = $self->nessus_request("scan/list",$post);
 
+#	print Dumper($xmls->{contents}->[0]->{scans});
 	my $scans = $xmls->{contents}->[0]->{scans}->[0]->{scanList}->[0];
 	return unless ref $scans eq 'HASH';
 
@@ -445,9 +446,23 @@ returns true if scan is finished/completed (identified by $uuid)
 =cut
 sub scan_finished {
 	my ( $self, $uuid ) = @_;
+
+	# The original version of this module used
+	# nessus_request('report/list') to determine the status.
+	# If there is a report and the status is 'complete', the
+	# scan will have finished. However, due to a change
+	# to nessus_request('scan/list') the result is undefined
+	# if the scan is finished. scan_status() will return
+	# undef, so scan_finish() return false. Now it's changed:
+	# if a scan status is not known, the scan is assumed to
+	# be not running == has finished. It should work for now,
+	# but it still has the drawback with error handling,
+	# which is inband signalling via  return values and mixes
+	# up with scan states.
+
 	my $status = $self->scan_status($uuid);
-	if ( $status eq "completed" ) {
-		return $status;
+	if (not defined($status) or ($status eq "completed")) {
+		return "completed";
 	} else {
 		return '';
 	}
