@@ -5,6 +5,7 @@ use LWP::UserAgent;
 use HTTP::Request::Common;
 use HTML::Parser;
 use List::Util qw/first/;
+use Data::Diver qw/Dive/;
 
 use warnings;
 use strict;
@@ -19,7 +20,7 @@ Version 0.30
 
 =cut
 
-our $VERSION = '0.30';
+our $VERSION = '0.31';
 
 
 =head1 SYNOPSIS
@@ -154,9 +155,9 @@ sub nessus_request {
 	}
 	my $xmls;
 	eval {
-	$xmls=XMLin($cont, ForceArray => 1, KeyAttr => '', SuppressEmpty => '' );
+	    $xmls=XMLin($cont, ForceArray => 1, KeyAttr => '', SuppressEmpty => '' );
 	} or carp( &@ );
-	if ($xmls->{'status'}->[0] eq "OK") {
+	if (Dive($xmls, qw(status 0)) eq "OK") {
 		return $xmls; 
 	} else { 
 		return ''
@@ -173,11 +174,7 @@ sub login {
 	my $post=[ login => $user, password => $password ];
 	my $xmls = $self->nessus_request("login",$post);
 
-	if ($xmls eq '' or not defined($xmls->{'contents'}->[0]->{'token'}->[0])) {
-		$self->token('');
-	} else {
-		$self->token ($xmls->{'contents'}->[0]->{'token'}->[0]);
-	}
+	$self->token (Dive($xmls, qw(contents 0 token 0)));
 	return $self->token;
 }
 
@@ -217,7 +214,7 @@ sub scan_new {
 
 	my $xmls = $self->nessus_request("scan/new",$post);
 	if ($xmls) {
-		return ($xmls->{'contents'}->[0]->{'scan'}->[0]->{'uuid'}->[0]);
+		return Dive($xmls, qw(contents 0 scan 0 uuid 0));
 	} else {
 		return $xmls
 	}
@@ -239,7 +236,7 @@ sub scan_new_file {
 	$post->{"target_file_name"} = $self->file_upload($filename);
 	my $xmls = $self->nessus_request("scan/new",$post);
 	if ($xmls) {
-		return ($xmls->{'contents'}->[0]->{'scan'}->[0]->{'uuid'}->[0]);
+		return Dive($xmls, qw(contents 0 scan 0 uuid 0));
 	} else {
 		return $xmls
 	}
@@ -352,11 +349,11 @@ sub scan_list_uids {
 	my $xmls = $self->nessus_request("scan/list",$post);
 	my @list;
 
-	my $r = $xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0];
+	my $r = Dive($xmls, qw(contents 0 scans 0 scanList 0));
 		     
 	if (ref($r) and exists($r->{'scan'})  ) {
-	    foreach my $scan (@{$xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0]->{'scan'}}) {
-		push @list, $scan->{'uuid'}->[0];
+	    foreach my $scan (@{$r->{scan}}) {
+		push @list, Dive($scan, qw(uuid 0));
 	    } # foreach
 	} # if
 	return \@list;
@@ -374,10 +371,13 @@ sub scan_get_name {
 	];
 
 	my $xmls = $self->nessus_request("scan/list",$post);
-	if ($xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0]->{'scan'}) {
-	foreach my $scan (@{$xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0]->{'scan'}}) {
-		if ($scan->{'uuid'}->[0] eq $uuid) {
-			return $scan->{'readableName'}->[0];
+
+	my $scan = Dive($xmls, qw(contents 0 scans 0 scanList 0 scan));
+
+	if (ref($scan)) {
+	    foreach my $scan (@{$scan}) {
+		if (Dive($scan, qw(uuid 0)) eq $uuid) {
+			return Dive($scan, qw(readableName 0));
 		}
 	} # foreach
 	} # if
@@ -425,17 +425,16 @@ sub scan_full_status {
 
 	my $xmls = $self->nessus_request("scan/list",$post);
 
-#	print Dumper($xmls->{contents}->[0]->{scans});
-	my $scans = $xmls->{contents}->[0]->{scans}->[0]->{scanList}->[0];
+	my $scans = Dive($xmls, qw(contents 0 scans 0 scanList 0));
 	return unless ref $scans eq 'HASH';
 
-	my $scan = first { $_->{uuid}->[0] eq $uuid } @{$scans->{scan}};
+	my $scan = first { Dive($_, qw(uuid 0)) eq $uuid } @{$scans->{scan}};
 	return unless $scan;
 
 	return {
-		current => $scan->{completion_current}->[0],
-		total   => $scan->{completion_total}->[0],
-		status  => $scan->{status}->[0],
+		current => Dive($scan, qw(completion_current 0)),
+		total   => Dive($scan, qw(completion_total 0)),
+		status  => Dive($scan, qw(status 0))
 	};
 
 }
@@ -508,8 +507,8 @@ sub file_upload {
 	eval {
 	$xmls=XMLin($cont, ForceArray => 1, KeyAttr => '', SuppressEmpty => '');
 	} or return '';
-	if ($xmls->{'status'}->[0] eq "OK") {
-		return $xmls->{'contents'}->[0]->{'fileUploaded'}->[0]; 
+	if (Dive($xmls, qw(status 0)) eq "OK") {
+		return Dive($xmls, qw(contents 0 fileUploaded 0)); 
 	} else { 
 		return ''
 	}
@@ -536,8 +535,8 @@ sub upload {
 	eval {
 	$xmls=XMLin($cont, ForceArray => 1, KeyAttr => '', SuppressEmpty => '');
 	} or return '';
-	if ($xmls->{'status'}->[0] eq "OK") {
-		return $xmls->{'contents'}->[0]->{'fileUploaded'}->[0]; 
+	if (Dive($xmls, qw(status 0)) eq "OK") {
+		return Dive($xmls, qw(contents 0 fileUploaded 0)); 
 	} else { 
 		return ''
 	}
@@ -555,10 +554,11 @@ sub policy_get_first {
 		 ];
 	
 	my $xmls = $self->nessus_request("policy/list",$post);
-	if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		return $report->{'policyID'}->[0];
-	} # foreach
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+	if (ref($p)) {
+	    foreach my $report (@$p) {
+		return Dive($report, qw(policyID 0));
+	    } # foreach
 	} # if
 	return '';
 }
@@ -578,19 +578,25 @@ sub policy_get_firsth {
 		"token" => $self->token, 
 		 ];
 
-	my %info;	
 	my $xmls = $self->nessus_request("policy/list",$post);
-	if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		$info{'id'} = $report->{'policyID'}->[0];
-		$info{'name'} = $report->{'policyName'}->[0];
-		$info{'owner'} = $report->{'policyOwner'}->[0];
-		$info{'visibility'} = $report->{'visibility'}->[0];
-		$info{'comment'} = $report->{'policyContents'}->[0]->{'policyComments'}->[0];
-		return \%info;
-	} # foreach
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+	if (ref $p) {
+	    foreach my $report (@$p) {
+		return _copy_policy_info($report);
+	    } # foreach
 	} # if
-	return \%info;
+	return {};
+}
+
+sub _copy_policy_info {
+    my $report = shift;
+    my $info;	
+    $info->{'id'} = Dive($report, qw(policyID 0));
+    $info->{'name'} = Dive($report, qw(policyName 0));
+    $info->{'owner'} = Dive($report, qw(policyOwner 0));
+    $info->{'visibility'} = Dive($report, qw(visibility 0));
+    $info->{'comment'} = Dive($report, qw(policyContents 0 policyComments 0));
+    return $info;
 }
 
 =head2 policy_list_hash
@@ -610,16 +616,13 @@ sub policy_list_hash {
 
 	my @list;
 	my $xmls = $self->nessus_request("policy/list",$post);
-	if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		my %info;	
-		$info{'id'} = $report->{'policyID'}->[0];
-		$info{'name'} = $report->{'policyName'}->[0];
-		$info{'owner'} = $report->{'policyOwner'}->[0];
-		$info{'visibility'} = $report->{'visibility'}->[0];
-		$info{'comment'} = $report->{'policyContents'}->[0]->{'policyComments'}->[0];
-		push @list, \%info;
-	} # foreach
+
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+
+	if (ref $p) {
+	    foreach my $report (@$p) {
+		push @list, _copy_policy_info($report);
+	    } # foreach
 	} # if
 	return \@list;
 }
@@ -637,11 +640,13 @@ sub policy_list_uids {
 
 	my $xmls = $self->nessus_request("policy/list",$post);
 	my @list;
-	if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		push @list,$report->{'policyID'}->[0];
-	} # foreach
-	return \@list;
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+
+	if (ref $p) {
+	    foreach my $report (@$p) {
+		push @list, Dive($report, qw(policyID 0));
+	    } # foreach
+	    return \@list;
 	} # if
 	return '';
 }
@@ -659,11 +664,14 @@ sub policy_list_names {
 
 	my $xmls = $self->nessus_request("policy/list",$post);
 	my @list;
-	if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		push @list,$report->{'policyName'}->[0];
-	} # foreach
-	return \@list;
+
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+	if (ref $p) {
+
+	    foreach my $report (@$p) {
+		push @list, Dive($report, qw(policyName 0));
+	    } # foreach
+	    return \@list;
 	} # if
 	return '';
 }
@@ -681,21 +689,16 @@ sub policy_get_info {
 	my $post=[ 
 		"token" => $self->token, 
 		 ];
-	my %info;
 	my $xmls = $self->nessus_request("policy/list",$post);
-	if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-	if ($report->{'policyID'}->[0] eq $policy_id) {
-		$info{'id'} = $report->{'policyID'}->[0];
-		$info{'name'} = $report->{'policyName'}->[0];
-		$info{'owner'} = $report->{'policyOwner'}->[0];
-		$info{'visibility'} = $report->{'visibility'}->[0];
-		$info{'comment'} = $report->{'policyContents'}->[0]->{'policyComments'}->[0];
-		return \%info;
-	}
-	} # foreach
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+	if (ref $p) {
+	    foreach my $report (@$p) {
+		if (Dive($report, qw(policyID 0)) eq $policy_id) {
+		    return _copy_policy_info($report);
+		}
+	    } # foreach
 	} # if
-	return \%info;
+	return {};
 }
 
 =head2 policy_get_id ( $policy_name ) 
@@ -708,15 +711,18 @@ sub policy_get_id {
 	my $post=[ 
 		"token" => $self->token, 
 		 ];
-	 my $xmls = $self->nessus_request("policy/list",$post);
-	 if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	 foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		if ($report->{'policyName'}->[0] eq $policy_name) {
-			return $report->{'policyID'}->[0];
+
+	my $xmls = $self->nessus_request("policy/list",$post);
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+	if (ref $p) {
+
+	    foreach my $report (@$p) {
+		if (Dive($report, qw(policyName 0)) eq $policy_name) {
+		    return Dive($report, qw(policyID 0));
 		}
-	 } # foreach
-	 } # if
-	 return '';
+	    } # foreach
+	} # if
+	return '';
 }
 
 =head2 policy_get_name ( $policy_id ) 
@@ -729,13 +735,15 @@ sub policy_get_name {
 	my $post=[ 
 		"token" => $self->token, 
 		 ];
-	 my $xmls = $self->nessus_request("policy/list",$post);
-	 if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-	 foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		if ($report->{'policyID'}->[0] eq $policy_id) {
-			return $report->{'policyName'}->[0];
+	my $xmls = $self->nessus_request("policy/list",$post);
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+	if (ref $p) {
+
+	    foreach my $report (@$p) {
+		if (Dive($report, qw(policyID 0)) eq $policy_id) {
+		    return Dive($report, qw(policyName 0));
 		}
-	 } # foreach
+	    } # foreach
 	 } # if
 	 return '';
 }
@@ -769,8 +777,9 @@ sub policy_copy {
 		 ];
 
 	my $xmls = $self->nessus_request("policy/copy",$post);
-	if ($xmls->{'contents'}->[0]->{'policy'}->[0]) {
-		return $xmls->{'contents'}->[0]->{'policy'}->[0]->{'policyID'}->[0];
+	my $p = Dive($xmls, qw(contents 0 policy 0));
+	if (ref $p) {
+	    return Dive($p, qw(policyID 0));
 	} # if
 	return '';
 }
@@ -818,9 +827,8 @@ sub policy_edit {
 		"token" => $self->token, 
 		"policy_id" => $policy_id
 		 };
-	while (my ($key, $value) = each(%{$params}))
-	{
-		$post->{$key} = $value;
+	while (my ($key, $value) = each(%{$params})) {
+	    $post->{$key} = $value;
 	}
 
 	my $xmls = $self->nessus_request("policy/add",$post);
@@ -855,34 +863,43 @@ sub policy_get_opts {
 		 ];
 	my $xmls = $self->nessus_request("policy/list",$post);
 
-	if ($xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}) {
-		my %opts;
-		foreach my $report (@{$xmls->{'contents'}->[0]->{'policies'}->[0]->{'policy'}}) {
-		if ($report->{'policyID'}->[0] eq $policy_id) {
-			$opts{'policy_name'}=$report->{'policyName'}->[0];
-			if ($report->{'visibility'}->[0] eq "shared") {
-				$opts{'policy_shared'}=1;
-			} else {
-				$opts{'policy_shared'}=0;
-			}
-			if ($report->{'policyContents'}->[0]->{'policyComments'}->[0]) {
-				$opts{'policy_comments'}=$report->{'policyContents'}->[0]->{'policyComments'}->[0];
-			}
-			foreach my $prefs (@{$report->{'policyContents'}->[0]->{'Preferences'}->[0]->{'ServerPreferences'}->[0]->{'preference'}}) {
-				$opts{$prefs->{'name'}->[0]} = $prefs->{'value'}->[0] if ($prefs->{'name'}->[0]);
-			}
-			foreach my $prefp (@{$report->{'policyContents'}->[0]->{'Preferences'}->[0]->{'PluginsPreferences'}->[0]->{'item'}}) {
-				$opts{$prefp->{'fullName'}->[0]} = $prefp->{'selectedValue'}->[0] if ($prefp->{'fullName'}->[0]);
-			}
-			foreach my $plugf (@{$report->{'policyContents'}->[0]->{'FamilySelection'}->[0]->{'FamilyItem'}}) {
-				$opts{"plugin_selection.family.".$plugf->{'FamilyName'}->[0]} = $plugf->{'Status'}->[0] if ($plugf->{'FamilyName'}->[0]);
-			}
-			foreach my $plugi (@{$report->{'policyContents'}->[0]->{'IndividualPluginSelection'}->[0]->{'PluginItem'}}) {
-				$opts{"plugin_selection.individual_plugin.".$plugi->{'PluginId'}->[0]} = $plugi->{'Status'}->[0] if ($plugi->{'PluginId'}->[0]);
-			}
-			return \%opts;
+	my $p = Dive($xmls, qw(contents 0 policies 0 policy));
+	if (ref $p) {
+	    my %opts;
+	    foreach my $report (@$p) {
+		if (Dive($report, qw(policyID 0)) eq $policy_id) {
+
+		    $opts{'policy_name'} = Dive($report, qw(policyName 0));
+		    if (Dive($report, qw(visibility 0)) eq "shared") {
+			$opts{'policy_shared'}=1;
+		    } else {
+			$opts{'policy_shared'}=0;
+		    }
+		    my $c = Dive($report, qw(policyContents 0 policyComments 0));
+		    if (ref $c) {
+			$opts{'policy_comments'} = $c;
+		    }
+		    $c = Dive($report, qw(policyContents 0 Preferences 0 ServerPreferences 0 preference));
+		    foreach my $prefs (@$c) {
+			$opts{Dive($prefs, qw(name 0))} = Dive($prefs, qw(value 0)) if (Dive($prefs, qw(name 0)));
+		    }
+		    $c = Dive($report, qw(policyContents 0 Preferences 0 PluginsPreferences 0 item));
+		    foreach my $prefp (@$c) {
+			$opts{Dive($prefp, qw(fullName 0))} = Dive($prefp, qw(selectedValue 0)) if(Dive($prefp, qw(fullName 0)));
+		    }
+		    $c = Dive($report, qw(policyContents 0 FamilySelection 0 FamilyItem));
+		    foreach my $plugf (@$c) {
+			$opts{"plugin_selection.family.".Dive($plugf, qw(FamilyName 0))} = 
+				  Dive($plugf, qw(Status 0)) if (Dive($plugf, qw(FamilyName 0)));
+		    }
+		    $c = Dive($report, qw(policyContents 0 IndividualPluginSelection 0 PluginItem));
+		    foreach my $plugi (@$c) {
+			$opts{"plugin_selection.individual_plugin.".Dive($plugi, qw(PluginId 0))} = 
+			    Dive($plugi, qw(Status 0)) if (Dive($plugi, qw(PluginId 0)));
+		    }
+		    return \%opts;
 		}
-	 } # foreach
+	    } # foreach
 	 } # if
 	 return '';
 }
@@ -919,10 +936,11 @@ sub report_list_uids {
 
 	my $xmls = $self->nessus_request("report/list",$post);
 	my @list;
-	if ($xmls->{'contents'}->[0]->{'reports'}->[0]->{'report'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'reports'}->[0]->{'report'}}) {
-		push @list, $report->{'name'}->[0];
-	}
+	my $r = Dive($xmls, qw(contents 0 reports 0 report));
+	if (ref $r) {
+	    foreach my $report (@$r) {
+		push @list, Dive($report, qw(name 0));
+	    }
 	}
 
 	return \@list;
@@ -946,16 +964,17 @@ sub report_list_hash {
 
 	my $xmls = $self->nessus_request("report/list",$post);
 	my @list;
-	if ($xmls->{'contents'}->[0]->{'reports'}->[0]->{'report'}) {
-	foreach my $report (@{$xmls->{'contents'}->[0]->{'reports'}->[0]->{'report'}}) {	
+	my $r = Dive($xmls, qw(contents 0 reports 0 report));
+	if (ref $r) {
+	    foreach my $report (@$r) {	
 		my %r;
-		$r{'name'} = $report->{'name'}->[0];
-		$r{'status'} = $report->{'status'}->[0];
-		$r{'readableName'} = $report->{'readableName'}->[0];
-		$r{'timestamp'} = $report->{'timestamp'}->[0];
+		$r{'name'} = Dive($report, qw(name 0));
+		$r{'status'} = Dive($report, qw(status 0));
+		$r{'readableName'} = Dive($report, qw(readableName 0));
+		$r{'timestamp'} = Dive($report, qw(timestamp 0));
 		
 		push @list, \%r;
-	}
+	    }
 	}
 
 	return \@list;
@@ -1100,15 +1119,16 @@ sub users_list {
 		 ];
 	my @users;
 	my $xmls = $self->nessus_request("users/list",$post);
-	if ($xmls->{'contents'}->[0]->{'users'}->[0]->{'user'}) {
-	foreach my $user (@{$xmls->{'contents'}->[0]->{'users'}->[0]->{'user'}}) {
+	my $u = Dive($xmls, qw(contents 0 users 0 user));
+	if (ret $u) {
+	    foreach my $user (@$u) {
 		my %info;
-		$info{'name'} = $user->{'name'}->[0];
-		$info{'admin'} = $user->{'admin'}->[0];
-		$info{'lastlogin'} = $user->{'lastlogin'}->[0];
+		$info{'name'} = Dive($user, qw(name 0));
+		$info{'admin'} = Dive($user, qw(admin 0));
+		$info{'lastlogin'} = Dive($user, qw(lastlogin 0));
 		push @users, \%info
-
-	} # foreach
+		    
+	    } # foreach
 	} # if
 	return \@users;
 }
@@ -1126,10 +1146,7 @@ sub users_delete {
 		"login" => $login
 		 ];
 	my $xmls = $self->nessus_request("users/delete",$post);
-	my $user = '';
-	if ($xmls->{'contents'}->[0]->{'user'}->[0]->{'name'}->[0]) {
-		$user = $xmls->{'contents'}->[0]->{'user'}->[0]->{'name'}->[0];
-	}
+	my $user = Dive($xmls, qw(contents 0 user 0 name 0));
 	return $user;
 }
 
@@ -1147,10 +1164,7 @@ sub users_add {
 		"password" => $password
 		 ];
 	my $xmls = $self->nessus_request("users/add",$post);
-	my $user = '';
-	if ($xmls->{'contents'}->[0]->{'user'}->[0]->{'name'}->[0]) {
-		$user = $xmls->{'contents'}->[0]->{'user'}->[0]->{'name'}->[0];
-	}
+	my $user = Dive($xmls, qw(contents 0 user 0 name 0));
 	return $user;
 }
 
@@ -1168,10 +1182,8 @@ sub users_passwd {
 		"password" => $password
 		 ];
 	my $xmls = $self->nessus_request("users/chpasswd",$post);
-	my $user = '';
-	if ($xmls->{'contents'}->[0]->{'user'}->[0]->{'name'}->[0]) {
-		$user = $xmls->{'contents'}->[0]->{'user'}->[0]->{'name'}->[0];
-	}
+
+	my $user = Dive($xmls, qw(contents 0 user 0 name 0));
 	return $user;
 }
 
