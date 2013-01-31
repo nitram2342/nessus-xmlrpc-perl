@@ -351,12 +351,15 @@ sub scan_list_uids {
 
 	my $xmls = $self->nessus_request("scan/list",$post);
 	my @list;
-	if ($xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0]->{'scan'}) {
-	foreach my $scan (@{$xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0]->{'scan'}}) {
+
+	my $r = $xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0];
+		     
+	if (ref($r) and exists($r->{'scan'})  ) {
+	    foreach my $scan (@{$xmls->{'contents'}->[0]->{'scans'}->[0]->{'scanList'}->[0]->{'scan'}}) {
 		push @list, $scan->{'uuid'}->[0];
-	} # foreach
-	return \@list;
+	    } # foreach
 	} # if
+	return \@list;
 }
 
 =head2 scan_get_name ( $uuid ) 
